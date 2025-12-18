@@ -1,9 +1,19 @@
 import copy
 import random
+
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
+
+import sys
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QTableWidget, 
+    QTableWidgetItem, QPushButton, QLabel, QHeaderView, QComboBox, QHBoxLayout
+)
+from PySide6.QtCore import Qt
+import copy
+import random
 
 class Exercise:
     def __init__(self, name, type, link=""):
@@ -22,11 +32,11 @@ class Exercise:
     #Will add progression to make it scale for larger week ranges
     def apply_progression(self, week):
         adjusted_week = week % 5
-        if week == 3:
+        if adjusted_week == 3:
             self.sets = min(self.base_sets + 1, 4)
             low, high = map(int, self.base_reps.split("-"))
             self.reps = f"{low+1}-{high+1}"
-        elif week > 3 and week <= 4:
+        elif adjusted_week > 3 and adjusted_week <= 4:
             self.sets = min(self.base_sets + 1, 4)
             low, high = map(int, self.base_reps.split("-"))
             self.reps = f"{low+2}-{high+2}"
@@ -274,7 +284,7 @@ workout_program = WorkoutProgram(program_type=1)
 workout_program_arnold = WorkoutProgram(program_type=0)
 block = TrainingBlock(workout_program, weeks=5)
 block_arnold = TrainingBlock(workout_program_arnold, weeks=5)
-block_full_body = TrainingBlock(full_body_program, weeks=5)
+block_full_body = TrainingBlock(full_body_program, weeks=10)
 block.generate()
 block_arnold.generate()
 block_full_body.generate()
@@ -296,7 +306,10 @@ def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
 
         c.setFont("Helvetica-Bold", 22)
         c.setFillColor(text)
-        c.drawString(1 * inch, y, f"Week {week_index + 1}")
+        if (week_index + 1) % 5 == 0:  
+            c.drawString(1 * inch, y, f"Week {week_index + 1} (Heavy)")
+        else:
+            c.drawString(1 * inch, y, f"Week {week_index + 1}")
         y -= 0.4 * inch
 
         for day, exercises in week.schedule.items():
@@ -337,3 +350,128 @@ def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
 export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
 export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
 export_block_to_light_pdf(block_full_body, filename="4_Week_Full_Body_Light.pdf")
+
+class ProgramGUI(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Workout Program Generator & Multi-Week Preview")
+        self.setGeometry(100, 100, 800, 500)
+
+        self.training_block = None
+        self.week_number = 0
+
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+
+        top_layout = QHBoxLayout()
+        self.layout.addLayout(top_layout)
+
+        top_layout.addWidget(QLabel("Program Type:"))
+        self.program_selector = QComboBox()
+        self.program_selector.addItems(["PPL", "Arnold Split", "Full Body"])
+        top_layout.addWidget(self.program_selector)
+
+        self.generate_button = QPushButton("Generate Program")
+        self.generate_button.clicked.connect(self.generate_program)
+        top_layout.addWidget(self.generate_button)
+
+        self.week_label = QLabel("")
+        self.week_label.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.week_label)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["Day", "Exercise", "Type", "Sets", "Reps"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.layout.addWidget(self.table)
+
+        nav_layout = QHBoxLayout()
+        self.layout.addLayout(nav_layout)
+
+        self.prev_week_btn = QPushButton("<< Previous Week")
+        self.prev_week_btn.clicked.connect(self.prev_week)
+        nav_layout.addWidget(self.prev_week_btn)
+
+        self.next_week_btn = QPushButton("Next Week >>")
+        self.next_week_btn.clicked.connect(self.next_week)
+        nav_layout.addWidget(self.next_week_btn)
+
+        self.save_btn = QPushButton("Save Current Week Edits")
+        self.save_btn.clicked.connect(self.save_week)
+        nav_layout.addWidget(self.save_btn)
+
+        self.save_pdf_btn = QPushButton("Export Training Block to PDF")
+        self.save_pdf_btn.clicked.connect(self.save_week)
+        self.save_pdf_btn.clicked.connect(self.export_current_block_to_pdf)
+        nav_layout.addWidget(self.save_pdf_btn)
+
+    def export_current_block_to_pdf(self):
+        if self.training_block:
+            filename = f"Training_Block_Week_{len(self.training_block.weeks)}.pdf"
+            export_block_to_light_pdf(self.training_block, filename=filename)
+            print(f"Exported current training block to {filename}")
+
+    def generate_program(self):
+        program_type = self.program_selector.currentText()
+        if program_type == "PPL":
+            wp = WorkoutProgram(program_type=1)
+        elif program_type == "Arnold Split":
+            wp = WorkoutProgram(program_type=0)
+        else:
+            wp = WorkoutProgram(program_type=2)
+        
+        self.training_block = TrainingBlock(wp, weeks=5)
+        self.training_block.generate()
+        self.week_number = 0
+        self.show_week()
+
+    def show_week(self):
+        week = self.training_block.weeks[self.week_number]
+        self.week_label.setText(f"Week {self.week_number + 1}")
+
+        # Count total exercises
+        total_exercises = sum(len(exs) for exs in week.schedule.values())
+        self.table.setRowCount(total_exercises)
+
+        row_index = 0
+        for day, exercises in week.schedule.items():
+            for ex in exercises:
+                self.table.setItem(row_index, 0, QTableWidgetItem(day))
+                self.table.item(row_index, 0).setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(row_index, 1, QTableWidgetItem(ex.name))
+                self.table.item(row_index, 1).setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(row_index, 2, QTableWidgetItem(str(ex.type)))
+                self.table.item(row_index, 2).setFlags(Qt.ItemIsEnabled)
+                self.table.setItem(row_index, 3, QTableWidgetItem(str(ex.sets)))
+                self.table.setItem(row_index, 4, QTableWidgetItem(str(ex.reps)))
+                row_index += 1
+
+    def save_week(self):
+        week = self.training_block.weeks[self.week_number]
+        row_index = 0
+        for day, exercises in week.schedule.items():
+            for i, ex in enumerate(exercises):
+                sets = self.table.item(row_index, 3).text()
+                reps = self.table.item(row_index, 4).text()
+                ex.sets = int(sets)
+                ex.reps = reps
+                row_index += 1
+        print(f"Week {self.week_number + 1} edits saved.")
+
+    def next_week(self):
+        if self.training_block and self.week_number < len(self.training_block.weeks) - 1:
+            self.save_week()
+            self.week_number += 1
+            self.show_week()
+
+    def prev_week(self):
+        if self.training_block and self.week_number > 0:
+            self.save_week()
+            self.week_number -= 1
+            self.show_week()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    gui = ProgramGUI()
+    gui.show()
+    sys.exit(app.exec())
