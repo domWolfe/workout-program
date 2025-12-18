@@ -1,18 +1,37 @@
+import copy
 import random
-#Chest Exercises
-#Programs will follow a system
-#Choose from heavy exercises 1x
-#2 pushing movements, 2 fly movements
-#Upper Chest Must be Hit by at least One Exercise
+from reportlab.lib.colors import HexColor
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 
 class Exercise:
     def __init__(self, name, type, link=""):
         self.name = name
         self.type = type
         self.link = link
+        self.base_sets = 2
+        self.sets = 2
+        if type in (0, 1):
+            self.base_reps = "4-6"
+        else:
+            self.base_reps = "6-8"
+
+        self.reps = self.base_reps
+
+    #Will add progression to make it scale for larger week ranges
+    def apply_progression(self, week):
+        if week == 3:
+            self.sets = min(self.base_sets + 1, 4)
+            low, high = map(int, self.base_reps.split("-"))
+            self.reps = f"{low+1}-{high+1}"
+        elif week > 3 and week <= 6:
+            self.sets = min(self.base_sets + 1, 4)
+            low, high = map(int, self.base_reps.split("-"))
+            self.reps = f"{low+2}-{high+2}"
     
     def print_exercise(self):
-        print(f"Exercise: {self.name}, Type: {self.type}, Link: {self.link}")
+        print(f"Exercise: {self.name}, Type: {self.type}, Volume: {self.sets}x{self.reps}, Link: {self.link}")
 
 class ExerciseList:
     def __init__(self):
@@ -146,10 +165,105 @@ class WorkoutProgram:
                 exercise.print_exercise()
             print()
 
-ppl_program = WorkoutProgram(0)
-ppl_program.generate_ppl_program()
-ppl_program.print_program()
+class Week:
+    def __init__(self, program):
+        self.program = program
+        self.schedule = {}
+    
+    def generate_week_schedule(self):
+        days = list(self.program.workouts.keys())
+        for day in days:
+            self.schedule[day] = self.program.workouts[day]
 
-arnold_split = WorkoutProgram(1)
-arnold_split.generate_arnold_split()
-arnold_split.print_program()
+    def print_week_schedule(self):
+        for day, exercises in self.schedule.items():
+            print(f"{day}:")
+            for exercise in exercises:
+                exercise.print_exercise()
+            print()
+
+class TrainingBlock:
+    def __init__(self, program, weeks=4):
+        self.program = program
+        self.weeks = []
+        self.num_weeks = weeks
+
+    def generate(self):
+        for week_number in range(1, self.num_weeks + 1):
+            self.program.generate_program()
+            week = Week(self.program)
+            week.generate_week_schedule()
+
+            for day, exercises in week.schedule.items():
+                week.schedule[day] = [copy.deepcopy(ex) for ex in exercises]
+
+            for exercises in week.schedule.values():
+                for ex in exercises:
+                    ex.apply_progression(week_number)
+
+            self.weeks.append(week)
+
+workout_program = WorkoutProgram(program_type=1)
+workout_program_arnold = WorkoutProgram(program_type=0)
+block = TrainingBlock(workout_program, weeks=4)
+block_arnold = TrainingBlock(workout_program_arnold, weeks=4)
+block.generate()
+block_arnold.generate()
+
+def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
+    c = canvas.Canvas(filename, pagesize=letter)
+    width, height = letter
+
+    bg = HexColor("#FFFFFF")
+    text = HexColor("#0F172A")
+    accent = HexColor("#2563EB")
+    muted = HexColor("#475569")
+
+    for week_index, week in enumerate(block.weeks):
+        c.setFillColor(bg)
+        c.rect(0, 0, width, height, stroke=0, fill=1)
+
+        y = height - 1.2 * inch
+
+        c.setFont("Helvetica-Bold", 22)
+        c.setFillColor(text)
+        c.drawString(1 * inch, y, f"Week {week_index + 1}")
+        y -= 0.4 * inch
+
+        for day, exercises in week.schedule.items():
+            if y < 2 * inch:
+                c.showPage()
+                y = height - 1.2 * inch
+
+            c.setFont("Helvetica-Bold", 17)
+            c.setFillColor(accent)
+            c.drawString(1 * inch, y, day)
+            y -= 0.25 * inch
+
+            c.setStrokeColor(accent)
+            c.setLineWidth(1.2)
+            c.line(1 * inch, y, width - 1 * inch, y)
+            y -= 0.3 * inch
+
+            for ex in exercises:
+                c.setFont("Helvetica-Bold", 13)
+                c.setFillColor(text)
+                c.drawString(1.1 * inch, y, ex.name)
+
+                c.setFont("Helvetica", 11)
+                c.setFillColor(muted)
+                c.drawRightString(
+                    width - 1 * inch,
+                    y,
+                    f"{ex.sets} x {ex.reps}"
+                )
+                y -= 0.25 * inch
+
+            y -= 0.35 * inch
+
+        c.showPage()
+
+    c.save()
+
+export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
+export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
