@@ -21,11 +21,12 @@ class Exercise:
 
     #Will add progression to make it scale for larger week ranges
     def apply_progression(self, week):
+        adjusted_week = week % 5
         if week == 3:
             self.sets = min(self.base_sets + 1, 4)
             low, high = map(int, self.base_reps.split("-"))
             self.reps = f"{low+1}-{high+1}"
-        elif week > 3 and week <= 6:
+        elif week > 3 and week <= 4:
             self.sets = min(self.base_sets + 1, 4)
             low, high = map(int, self.base_reps.split("-"))
             self.reps = f"{low+2}-{high+2}"
@@ -50,6 +51,8 @@ class ExerciseList:
 # 0 = Heavy Tricep Lateral, 1 = Heavy Tricep Long, 2 = Tricep Pushdown Variation, 3 = Tricep Overhead Variation
 # 0 = Heavy Rowing Movement, 1 = Heavy Pulling Movement, 2 = Close Grip Rowing Movement, 3 = Traps
 # 0 = Heavy Curls Long, 1 = Heavy Curls Short, 2 = Light Curls Long, 3 = Light Curls Short
+# 0 = Heavy Squat, 1 = Heavy Hinge, 2 = Light Squat/Hinge, 3 = Accessory Lower Body
+# 0 = Heavy Shoulder Press, 1 = Raise Variation, 2 = Rear Delt Variation, 3 = Calfs
 
 chest_exercises = ExerciseList()
 chest_exercises.add_exercise_by_con("Flat Barbell Bench Press", 0)
@@ -99,6 +102,27 @@ bicep_exercises.add_exercise_by_con("Hammer Curls", 2)
 bicep_exercises.add_exercise_by_con("Spider Curls", 3)
 bicep_exercises.add_exercise_by_con("Wide-Grip Ez-Bar Curls", 3)
 
+leg_exercises = ExerciseList()
+leg_exercises.add_exercise_by_con("Barbell Back Squat", 0)
+leg_exercises.add_exercise_by_con("Front Squat", 0)
+leg_exercises.add_exercise_by_con("Goblet Squat", 0)
+leg_exercises.add_exercise_by_con("Romanian Deadlift", 1)
+leg_exercises.add_exercise_by_con("Conventional Deadlift", 1)
+leg_exercises.add_exercise_by_con("Leg Press", 2)
+leg_exercises.add_exercise_by_con("Lunges", 2)
+leg_exercises.add_exercise_by_con("Leg Extensions", 3)
+leg_exercises.add_exercise_by_con("Leg Curls", 3)
+
+shoulder_exercises = ExerciseList()
+shoulder_exercises.add_exercise_by_con("Overhead Barbell Press", 0)
+shoulder_exercises.add_exercise_by_con("Dumbbell Shoulder Press", 0)
+shoulder_exercises.add_exercise_by_con("Lateral Raises", 1)
+shoulder_exercises.add_exercise_by_con("Cable Lateral Raises", 1)
+shoulder_exercises.add_exercise_by_con("Reverse Pec Deck Fly", 2)
+shoulder_exercises.add_exercise_by_con("Bent Over Dumbbell Reverse Fly", 2)
+shoulder_exercises.add_exercise_by_con("Face Pulls", 2)
+shoulder_exercises.add_exercise_by_con("Calf Raises", 3)
+
 class WorkoutExercises:
     def __init__(self, exercise_list):
         self.exercise_list = exercise_list
@@ -119,10 +143,10 @@ class WorkoutExercises:
         return program
     
 #Multiple Different Ways to Generate a Program
-    # Push Pull Legs 2x a Week (0)
-    # Upper Lower 2x a Week (1)
-    # Chest/Back Arms Legs 2x a Week (2)
-    # Full Body 3x a Week (3)
+    # Chest/Back Arms Legs 2x a Week (0)
+    # Push Pull Legs 2x a Week (1)
+    # Full Body 3x a Week (2)
+    # Upper Lower 2x a Week (3)
 class WorkoutProgram:
     def __init__(self, program_type):
         self.program_type = program_type
@@ -133,30 +157,72 @@ class WorkoutProgram:
             self.generate_arnold_split()
         elif self.program_type == 1:
             self.generate_ppl_program()
+        elif self.program_type == 2:
+            self.generate_full_body_program()
 
     def generate_arnold_split(self):
         chest_workout = WorkoutExercises(chest_exercises)
         program_chest = chest_workout.generate_exercises()
         back_workout = WorkoutExercises(back_exercises)
         program_back = back_workout.generate_exercises()
+        program_chest.sort(key=lambda x: x.type)
+        program_back.sort(key=lambda x: x.type)
         self.workouts["Chest & Back"] = program_chest + program_back
+
         bicep_workout = WorkoutExercises(bicep_exercises)
         program_bicep = bicep_workout.generate_exercises()
         tricep_workout = WorkoutExercises(triceps_exercises)
         program_triceps = tricep_workout.generate_exercises()
+        program_triceps.sort(key=lambda x: x.type)
+        program_bicep.sort(key=lambda x: x.type)
         self.workouts["Arms"] = program_triceps + program_bicep
+
+        leg_workout = WorkoutExercises(leg_exercises)
+        program_legs = leg_workout.generate_exercises()
+        shoulder_workout = WorkoutExercises(shoulder_exercises)
+        program_shoulders = shoulder_workout.generate_exercises()
+        program_legs.sort(key=lambda x: x.type)
+        program_shoulders.sort(key=lambda x: x.type)
+        self.workouts["Legs & Shoulders"] = program_legs + program_shoulders
 
     def generate_ppl_program(self):
         chest_workout = WorkoutExercises(chest_exercises)
         program_chest = chest_workout.generate_exercises()
         tricep_workout = WorkoutExercises(triceps_exercises)
         program_triceps = tricep_workout.generate_exercises()
+        program_triceps.sort(key=lambda x: x.type)
+        program_chest.sort(key=lambda x: x.type)
         self.workouts["Push"] = program_chest + program_triceps
+
         back_workout = WorkoutExercises(back_exercises)
         program_back = back_workout.generate_exercises()
         bicep_workout = WorkoutExercises(bicep_exercises)
         program_bicep = bicep_workout.generate_exercises()
+        program_back.sort(key=lambda x: x.type)
+        program_bicep.sort(key=lambda x: x.type)
         self.workouts["Pull"] = program_back + program_bicep
+
+        leg_workout = WorkoutExercises(leg_exercises)
+        program_legs = leg_workout.generate_exercises()
+        shoulder_workout = WorkoutExercises(shoulder_exercises)
+        program_shoulders = shoulder_workout.generate_exercises()
+        program_legs.sort(key=lambda x: x.type)
+        program_shoulders.sort(key=lambda x: x.type)
+        self.workouts["Legs & Shoulders"] = program_legs + program_shoulders
+    
+    def generate_full_body_program(self):
+        program_chest = WorkoutExercises(chest_exercises).generate_exercises()
+        program_back = WorkoutExercises(back_exercises).generate_exercises()
+        program_legs = WorkoutExercises(leg_exercises).generate_exercises()
+        program_biceps = WorkoutExercises(bicep_exercises).generate_exercises()
+        program_triceps = WorkoutExercises(triceps_exercises).generate_exercises()
+        program_shoulders = WorkoutExercises(shoulder_exercises).generate_exercises()
+        exercises_a = [program_chest[0], program_back[0], program_legs[0], program_biceps[0], program_triceps[0], program_shoulders[0]]
+        self.workouts["Full Body A"] = exercises_a
+        exercises_b = [program_chest[1], program_back[1], program_legs[1], program_biceps[1], program_triceps[1], program_shoulders[1]]
+        self.workouts["Full Body B"] = exercises_b
+        exercises_c = [program_chest[0], program_back[0], program_legs[0], program_biceps[2], program_triceps[2], program_shoulders[2]]
+        self.workouts["Full Body C"] = exercises_c
 
     def print_program(self):
         for workout_name, exercises in self.workouts.items():
@@ -203,12 +269,15 @@ class TrainingBlock:
 
             self.weeks.append(week)
 
+full_body_program = WorkoutProgram(program_type=2)
 workout_program = WorkoutProgram(program_type=1)
 workout_program_arnold = WorkoutProgram(program_type=0)
-block = TrainingBlock(workout_program, weeks=4)
-block_arnold = TrainingBlock(workout_program_arnold, weeks=4)
+block = TrainingBlock(workout_program, weeks=5)
+block_arnold = TrainingBlock(workout_program_arnold, weeks=5)
+block_full_body = TrainingBlock(full_body_program, weeks=5)
 block.generate()
 block_arnold.generate()
+block_full_body.generate()
 
 def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
     c = canvas.Canvas(filename, pagesize=letter)
@@ -267,3 +336,4 @@ def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
 
 export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
 export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
+export_block_to_light_pdf(block_full_body, filename="4_Week_Full_Body_Light.pdf")
