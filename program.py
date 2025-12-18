@@ -10,7 +10,7 @@ import sys
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QTableWidget, 
     QTableWidgetItem, QPushButton, QLabel, QHeaderView, QComboBox, QHBoxLayout,
-    QDialog, QListWidget, QLineEdit, QMessageBox
+    QDialog, QListWidget, QLineEdit, QMessageBox, QInputDialog
 )
 from PySide6.QtCore import Qt
 
@@ -533,9 +533,15 @@ class ProgramGUI(QWidget):
 
     def export_current_block_to_pdf(self):
         if self.training_block:
-            filename = f"Training_Block_Week_{len(self.training_block.weeks)}.pdf"
-            export_block_to_light_pdf(self.training_block, filename=filename)
-            print(f"Exported current training block to {filename}")
+            filename, ok = QInputDialog.getText(None, "Input Dialog", "Enter document name:", QLineEdit.Normal, "")
+            if ok and filename != "":
+                filename += ".pdf"
+                export_block_to_light_pdf(self.training_block, filename=filename)
+                print(f"Exported current training block to {filename}")
+            else:
+                filename = f"Training_Block_Week_{len(self.training_block.weeks)}.pdf"
+                export_block_to_light_pdf(self.training_block, filename=filename)
+                print(f"Exported current training block to {filename}")
 
     def open_exercise_manager(self):
         dlg = ExerciseManager(self)
@@ -736,13 +742,21 @@ class NutritionDialog(QDialog):
             activity_label = self.activity.currentText()
             activity_factor = self.activity_levels[activity_label]
 
-            filename = "Nutrition_Plan_Light.pdf"
-
-            export_nutrition_to_light_pdf(
-                weight, height, age, sex,
-                activity_label, activity_factor,
-                filename=filename
-            )
+            filename, ok = QInputDialog.getText(None, "Input Dialog", "Enter document name:", QLineEdit.Normal, "")
+            if ok and filename != "":
+                filename += ".pdf"
+                export_nutrition_to_light_pdf(
+                    weight, height, age, sex,
+                    activity_label, activity_factor,
+                    filename=filename
+                )
+            else:
+                filename = "Nutrition_Plan.pdf"
+                export_nutrition_to_light_pdf(
+                    weight, height, age, sex,
+                    activity_label, activity_factor,
+                    filename=filename
+                )
 
             QMessageBox.information(
                 self,
