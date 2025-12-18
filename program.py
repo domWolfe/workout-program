@@ -9,11 +9,12 @@ from reportlab.pdfgen import canvas
 import sys
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QTableWidget, 
-    QTableWidgetItem, QPushButton, QLabel, QHeaderView, QComboBox, QHBoxLayout
+    QTableWidgetItem, QPushButton, QLabel, QHeaderView, QComboBox, QHBoxLayout,
+    QDialog, QListWidget, QLineEdit, QMessageBox
 )
 from PySide6.QtCore import Qt
-import copy
-import random
+
+import json
 
 class Exercise:
     def __init__(self, name, type, link=""):
@@ -54,8 +55,23 @@ class ExerciseList:
     def add_exercise_by_con(self, name, type, link=""):
         self.exercises.append(Exercise(name, type, link))
 
+    def remove_exercise(self, name):
+        self.exercises = [e for e in self.exercises if e.name != name]
+
     def get_exercises_by_type(self, type) -> list:
         return [exercise for exercise in self.exercises if exercise.type == type]
+
+    def to_dict(self):
+        return [
+            {"name": e.name, "type": e.type, "link": e.link}
+            for e in self.exercises
+        ]
+
+    def load_from_dict(self, data):
+        self.exercises.clear()
+        for e in data:
+            self.add_exercise_by_con(e["name"], e["type"], e.get("link", ""))
+
     
 # 0 = Regular Press, 1 = Upper Chest Press, 2 = Regular Fly, 3 = Upper Chest Fly
 # 0 = Heavy Tricep Lateral, 1 = Heavy Tricep Long, 2 = Tricep Pushdown Variation, 3 = Tricep Overhead Variation
@@ -132,6 +148,15 @@ shoulder_exercises.add_exercise_by_con("Reverse Pec Deck Fly", 2)
 shoulder_exercises.add_exercise_by_con("Bent Over Dumbbell Reverse Fly", 2)
 shoulder_exercises.add_exercise_by_con("Face Pulls", 2)
 shoulder_exercises.add_exercise_by_con("Calf Raises", 3)
+
+EXERCISE_POOLS = {
+    "Chest": chest_exercises,
+    "Triceps": triceps_exercises,
+    "Back": back_exercises,
+    "Biceps": bicep_exercises,
+    "Legs": leg_exercises,
+    "Shoulders": shoulder_exercises
+}
 
 class WorkoutExercises:
     def __init__(self, exercise_list):
@@ -347,6 +372,91 @@ def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
 
     c.save()
 
+def export_nutrition_to_light_pdf(
+    weight_kg,
+    height_cm,
+    age,
+    sex,
+    activity_label,
+    activity_factor,
+    filename="Nutrition_Plan.pdf"
+    ):
+    maintenance = NutritionCalculator.maintenance_calories(
+        weight_kg, height_cm, age, sex, activity_factor
+    )
+    bulk = NutritionCalculator.bulk_calories(maintenance)
+    cut = NutritionCalculator.cut_calories(maintenance)
+
+    c = canvas.Canvas(filename, pagesize=letter)
+    width, height = letter
+
+    bg = HexColor("#FFFFFF")
+    text = HexColor("#0F172A")
+    accent = HexColor("#2563EB")
+    muted = HexColor("#475569")
+
+    c.setFillColor(bg)
+    c.rect(0, 0, width, height, stroke=0, fill=1)
+
+    y = height - 1.2 * inch
+
+    # Title
+    c.setFont("Helvetica-Bold", 24)
+    c.setFillColor(text)
+    c.drawString(1 * inch, y, "Nutrition Overview")
+    y -= 0.5 * inch
+
+    c.setStrokeColor(accent)
+    c.setLineWidth(2)
+    c.line(1 * inch, y, width - 1 * inch, y)
+    y -= 0.6 * inch
+
+    # Stats
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(accent)
+    c.drawString(1 * inch, y, "Client Stats")
+    y -= 0.35 * inch
+
+    c.setFont("Helvetica", 13)
+    c.setFillColor(text)
+    stats = [
+        f"Weight: {weight_kg} kg",
+        f"Height: {height_cm} cm",
+        f"Age: {age}",
+        f"Sex: {sex}",
+        f"Activity Level: {activity_label}"
+    ]
+
+    for s in stats:
+        c.drawString(1.1 * inch, y, s)
+        y -= 0.25 * inch
+
+    y -= 0.4 * inch
+
+    # Calories
+    c.setFont("Helvetica-Bold", 16)
+    c.setFillColor(accent)
+    c.drawString(1 * inch, y, "Daily Calories")
+    y -= 0.35 * inch
+
+    c.setFont("Helvetica", 14)
+    c.setFillColor(text)
+
+    c.drawString(1.1 * inch, y, f"Maintenance Calories:")
+    c.drawRightString(width - 1 * inch, y, f"{maintenance} kcal")
+    y -= 0.3 * inch
+
+    c.drawString(1.1 * inch, y, f"Lean Bulk Calories:")
+    c.drawRightString(width - 1 * inch, y, f"{bulk} kcal")
+    y -= 0.3 * inch
+
+    c.drawString(1.1 * inch, y, f"Fat Loss Calories:")
+    c.drawRightString(width - 1 * inch, y, f"{cut} kcal")
+    y -= 0.6 * inch
+
+    c.save()
+
+
 export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
 export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
 export_block_to_light_pdf(block_full_body, filename="4_Week_Full_Body_Light.pdf")
@@ -400,6 +510,22 @@ class ProgramGUI(QWidget):
         self.save_btn.clicked.connect(self.save_week)
         nav_layout.addWidget(self.save_btn)
 
+        self.nutrition_btn = QPushButton("Nutrition Calculator")
+        self.nutrition_btn.clicked.connect(self.open_nutrition)
+        nav_layout.addWidget(self.nutrition_btn)
+
+        self.manage_btn = QPushButton("Manage Exercises")
+        self.manage_btn.clicked.connect(self.open_exercise_manager)
+        nav_layout.addWidget(self.manage_btn)
+
+        self.export_ex_btn = QPushButton("Export Exercises")
+        self.export_ex_btn.clicked.connect(lambda: export_exercises_to_json())
+        nav_layout.addWidget(self.export_ex_btn)
+
+        self.import_ex_btn = QPushButton("Import Exercises")
+        self.import_ex_btn.clicked.connect(self.import_exercises)
+        nav_layout.addWidget(self.import_ex_btn)
+
         self.save_pdf_btn = QPushButton("Export Training Block to PDF")
         self.save_pdf_btn.clicked.connect(self.save_week)
         self.save_pdf_btn.clicked.connect(self.export_current_block_to_pdf)
@@ -410,6 +536,18 @@ class ProgramGUI(QWidget):
             filename = f"Training_Block_Week_{len(self.training_block.weeks)}.pdf"
             export_block_to_light_pdf(self.training_block, filename=filename)
             print(f"Exported current training block to {filename}")
+
+    def open_exercise_manager(self):
+        dlg = ExerciseManager(self)
+        dlg.exec()
+
+    def import_exercises(self):
+        import_exercises_from_json()
+        print("Exercise config imported.")
+
+    def open_nutrition(self):
+        dlg = NutritionDialog(self)
+        dlg.exec()
 
     def generate_program(self):
         program_type = self.program_selector.currentText()
@@ -469,6 +607,190 @@ class ProgramGUI(QWidget):
             self.save_week()
             self.week_number -= 1
             self.show_week()
+
+class ExerciseManager(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Exercise Manager")
+        self.setMinimumWidth(500)
+
+        layout = QVBoxLayout(self)
+
+        self.group_selector = QComboBox()
+        self.group_selector.addItems(EXERCISE_POOLS.keys())
+        self.group_selector.currentTextChanged.connect(self.refresh_list)
+        layout.addWidget(self.group_selector)
+
+        self.exercise_list = QListWidget()
+        layout.addWidget(self.exercise_list)
+
+        form = QHBoxLayout()
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Exercise Name")
+        self.type_input = QComboBox()
+        self.type_input.addItems(["0", "1", "2", "3"])
+        form.addWidget(self.name_input)
+        form.addWidget(self.type_input)
+        layout.addLayout(form)
+
+        btns = QHBoxLayout()
+        add_btn = QPushButton("Add")
+        remove_btn = QPushButton("Remove Selected")
+        add_btn.clicked.connect(self.add_exercise)
+        remove_btn.clicked.connect(self.remove_exercise)
+        btns.addWidget(add_btn)
+        btns.addWidget(remove_btn)
+        layout.addLayout(btns)
+
+        self.refresh_list()
+
+    def current_pool(self):
+        return EXERCISE_POOLS[self.group_selector.currentText()]
+
+    def refresh_list(self):
+        self.exercise_list.clear()
+        for e in self.current_pool().exercises:
+            self.exercise_list.addItem(f"{e.name} (Type {e.type})")
+
+    def add_exercise(self):
+        name = self.name_input.text().strip()
+        if not name:
+            return
+        self.current_pool().add_exercise_by_con(
+            name, int(self.type_input.currentText())
+        )
+        self.name_input.clear()
+        self.refresh_list()
+
+    def remove_exercise(self):
+        item = self.exercise_list.currentItem()
+        if not item:
+            return
+        name = item.text().split(" (")[0]
+        self.current_pool().remove_exercise(name)
+        self.refresh_list()
+
+def export_exercises_to_json(filename="exercise_config.json"):
+    data = {k: v.to_dict() for k, v in EXERCISE_POOLS.items()}
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=2)
+
+def import_exercises_from_json(filename="exercise_config.json"):
+    with open(filename, "r") as f:
+        data = json.load(f)
+    for group, exercises in data.items():
+        if group in EXERCISE_POOLS:
+            EXERCISE_POOLS[group].load_from_dict(exercises)
+
+class NutritionDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Nutrition Calculator")
+        self.setMinimumWidth(350)
+
+        layout = QVBoxLayout(self)
+
+        self.weight = QLineEdit()
+        self.weight.setPlaceholderText("Weight (kg)")
+
+        self.height = QLineEdit()
+        self.height.setPlaceholderText("Height (cm)")
+
+        self.age = QLineEdit()
+        self.age.setPlaceholderText("Age")
+
+        self.sex = QComboBox()
+        self.sex.addItems(["Male", "Female"])
+
+        self.activity = QComboBox()
+        self.activity_levels = {
+            "Sedentary (1.2)": 1.2,
+            "Light (1.375)": 1.375,
+            "Moderate (1.55)": 1.55,
+            "Very Active (1.725)": 1.725,
+        }
+        self.activity.addItems(self.activity_levels.keys())
+
+        self.result = QLabel("")
+        self.result.setAlignment(Qt.AlignCenter)
+
+        calc_btn = QPushButton("Calculate Calories")
+        export_btn = QPushButton("Export Nutrition PDF")
+
+        calc_btn.clicked.connect(self.calculate)
+        export_btn.clicked.connect(self.export_pdf)
+
+        for w in [self.weight, self.height, self.age, self.sex, self.activity]:
+            layout.addWidget(w)
+
+        layout.addWidget(calc_btn)
+        layout.addWidget(export_btn)
+        layout.addWidget(self.result)
+
+    def export_pdf(self):
+        try:
+            weight = float(self.weight.text())
+            height = float(self.height.text())
+            age = int(self.age.text())
+            sex = self.sex.currentText()
+            activity_label = self.activity.currentText()
+            activity_factor = self.activity_levels[activity_label]
+
+            filename = "Nutrition_Plan_Light.pdf"
+
+            export_nutrition_to_light_pdf(
+                weight, height, age, sex,
+                activity_label, activity_factor,
+                filename=filename
+            )
+
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Nutrition plan exported to {filename}"
+            )
+        except ValueError:
+            QMessageBox.warning(self, "Input Error", "Please calculate first.")
+
+    def calculate(self):
+        try:
+            maintenance = NutritionCalculator.maintenance_calories(
+                weight_kg=float(self.weight.text()),
+                height_cm=float(self.height.text()),
+                age=int(self.age.text()),
+                sex=self.sex.currentText(),
+                activity_factor=self.activity_levels[self.activity.currentText()]
+            )
+
+            bulk = NutritionCalculator.bulk_calories(maintenance)
+            cut = NutritionCalculator.cut_calories(maintenance)
+
+            self.result.setText(
+                f"Maintenance: {maintenance} kcal\n"
+                f"Lean Bulk: {bulk} kcal\n"
+                f"Fat Loss: {cut} kcal"
+            )
+        except ValueError:
+            QMessageBox.warning(self, "Input Error", "Please enter valid numbers.")
+
+
+class NutritionCalculator:
+    @staticmethod
+    def maintenance_calories(weight_kg, height_cm, age, sex, activity_factor):
+        if sex.lower() == "male":
+            bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
+        else:
+            bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
+        return int(bmr * activity_factor)
+
+    @staticmethod
+    def bulk_calories(maintenance, surplus_pct=0.10):
+        return int(maintenance * (1 + surplus_pct))
+
+    @staticmethod
+    def cut_calories(maintenance, deficit_pct=0.20):
+        return int(maintenance * (1 - deficit_pct))
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
