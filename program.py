@@ -534,11 +534,11 @@ class ProgramGUI(QWidget):
     def export_current_block_to_pdf(self):
         if self.training_block:
             filename, ok = QInputDialog.getText(None, "Input Dialog", "Enter document name:", QLineEdit.Normal, "")
-            if ok and filename != "":
+            if ok and filename != "": 
                 filename += ".pdf"
                 export_block_to_light_pdf(self.training_block, filename=filename)
                 print(f"Exported current training block to {filename}")
-            else:
+            elif ok and not filename:
                 filename = f"Training_Block_Week_{len(self.training_block.weeks)}.pdf"
                 export_block_to_light_pdf(self.training_block, filename=filename)
                 print(f"Exported current training block to {filename}")
@@ -743,14 +743,14 @@ class NutritionDialog(QDialog):
             activity_factor = self.activity_levels[activity_label]
 
             filename, ok = QInputDialog.getText(None, "Input Dialog", "Enter document name:", QLineEdit.Normal, "")
-            if ok and filename != "":
+            if ok and filename:
                 filename += ".pdf"
                 export_nutrition_to_light_pdf(
                     weight, height, age, sex,
                     activity_label, activity_factor,
                     filename=filename
                 )
-            else:
+            elif ok and not filename:
                 filename = "Nutrition_Plan.pdf"
                 export_nutrition_to_light_pdf(
                     weight, height, age, sex,
