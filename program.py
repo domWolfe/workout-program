@@ -304,16 +304,6 @@ class TrainingBlock:
 
             self.weeks.append(week)
 
-full_body_program = WorkoutProgram(program_type=2)
-workout_program = WorkoutProgram(program_type=1)
-workout_program_arnold = WorkoutProgram(program_type=0)
-block = TrainingBlock(workout_program, weeks=5)
-block_arnold = TrainingBlock(workout_program_arnold, weeks=5)
-block_full_body = TrainingBlock(full_body_program, weeks=10)
-block.generate()
-block_arnold.generate()
-block_full_body.generate()
-
 def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
     c = canvas.Canvas(filename, pagesize=letter)
     width, height = letter
@@ -456,10 +446,6 @@ def export_nutrition_to_light_pdf(
 
     c.save()
 
-
-export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
-export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
-export_block_to_light_pdf(block_full_body, filename="4_Week_Full_Body_Light.pdf")
 
 class ProgramGUI(QWidget):
     def __init__(self):
@@ -787,7 +773,6 @@ class NutritionDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Input Error", "Please enter valid numbers.")
 
-
 class NutritionCalculator:
     @staticmethod
     def maintenance_calories(weight_kg, height_cm, age, sex, activity_factor):
@@ -805,6 +790,19 @@ class NutritionCalculator:
     def cut_calories(maintenance, deficit_pct=0.20):
         return int(maintenance * (1 - deficit_pct))
 
+#Test Cases
+full_body_program = WorkoutProgram(program_type=2)
+workout_program = WorkoutProgram(program_type=1)
+workout_program_arnold = WorkoutProgram(program_type=0)
+block = TrainingBlock(workout_program, weeks=5)
+block_arnold = TrainingBlock(workout_program_arnold, weeks=5)
+block_full_body = TrainingBlock(full_body_program, weeks=10)
+block.generate()
+block_arnold.generate()
+block_full_body.generate()
+export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
+export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
+export_block_to_light_pdf(block_full_body, filename="4_Week_Full_Body_Light.pdf")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
