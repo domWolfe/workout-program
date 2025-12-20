@@ -467,6 +467,10 @@ class ProgramGUI(QWidget):
         self.program_selector.addItems(["PPL", "Arnold Split", "Full Body"])
         top_layout.addWidget(self.program_selector)
 
+        self.week_selector = QComboBox()
+        self.week_selector.addItems(["5", "10", "15"])
+        top_layout.addWidget(self.week_selector)
+
         self.generate_button = QPushButton("Generate Program")
         self.generate_button.clicked.connect(self.generate_program)
         top_layout.addWidget(self.generate_button)
@@ -543,6 +547,7 @@ class ProgramGUI(QWidget):
 
     def generate_program(self):
         program_type = self.program_selector.currentText()
+        amt_weeks = int(self.week_selector.currentText())
         if program_type == "PPL":
             wp = WorkoutProgram(program_type=1)
         elif program_type == "Arnold Split":
@@ -550,7 +555,7 @@ class ProgramGUI(QWidget):
         else:
             wp = WorkoutProgram(program_type=2)
         
-        self.training_block = TrainingBlock(wp, weeks=5)
+        self.training_block = TrainingBlock(wp, weeks=amt_weeks)
         self.training_block.generate()
         self.week_number = 0
         self.show_week()
