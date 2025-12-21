@@ -842,6 +842,56 @@ class ProgramGUI(QWidget):
             self.week_number -= 1
             self.show_week()
 
+class EditClientDialog(QDialog):
+    def __init__(self, client, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Edit Client: {client.name}")
+        self.client = client
+        self.setMinimumWidth(300)
+
+        layout = QVBoxLayout(self)
+
+        self.weight_input = QLineEdit(str(client.weight))
+        self.weight_input.setPlaceholderText("Weight (kg)")
+        layout.addWidget(QLabel("Weight (kg)"))
+        layout.addWidget(self.weight_input)
+
+        self.height_input = QLineEdit(str(client.height))
+        self.height_input.setPlaceholderText("Height (cm)")
+        layout.addWidget(QLabel("Height (cm)"))
+        layout.addWidget(self.height_input)
+
+        self.age_input = QLineEdit(str(client.age))
+        self.age_input.setPlaceholderText("Age")
+        layout.addWidget(QLabel("Age"))
+        layout.addWidget(self.age_input)
+
+        self.sex_input = QComboBox()
+        self.sex_input.addItems(["Male", "Female"])
+        self.sex_input.setCurrentText(client.sex)
+        layout.addWidget(QLabel("Sex"))
+        layout.addWidget(self.sex_input)
+
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        cancel_btn = QPushButton("Cancel")
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        save_btn.clicked.connect(self.save)
+        cancel_btn.clicked.connect(self.reject)
+
+    def save(self):
+        try:
+            self.client.weight = float(self.weight_input.text())
+            self.client.height = float(self.height_input.text())
+            self.client.age = int(self.age_input.text())
+            self.client.sex = self.sex_input.currentText()
+            self.accept()
+        except ValueError:
+            QMessageBox.warning(self, "Input Error", "Please enter valid numbers.")
+
 class ClientManagerDialog(QDialog):
     def __init__(self, parent, manager):
         super().__init__(parent)
@@ -874,9 +924,21 @@ class ClientManagerDialog(QDialog):
         for w in [self.name_input, self.weight, self.client_height, self.age, self.sex]:
             layout.addWidget(w)
 
+        btn_layout = QHBoxLayout()
         add_btn = QPushButton("Add Client")
         add_btn.clicked.connect(self.add_client)
-        layout.addWidget(add_btn)
+        edit_btn = QPushButton("Edit Client")
+        edit_btn.clicked.connect(self.edit_client)
+        remove_btn = QPushButton("Remove Client")
+        remove_btn.clicked.connect(self.remove_client)
+        clear_btn = QPushButton("Clear Inputs")
+        clear_btn.clicked.connect(self.clear_inputs)
+
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(edit_btn)
+        btn_layout.addWidget(remove_btn)
+        btn_layout.addWidget(clear_btn)
+        layout.addLayout(btn_layout)
 
     def add_client(self):
         name = self.name_input.text().strip()
@@ -887,11 +949,53 @@ class ClientManagerDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Input Error", "Please enter valid numbers.")
             return
-        sex=self.sex.currentText()
-        if name:
+        sex = self.sex.currentText()
+        if name and name not in [c.name for c in self.manager.clients]:
             self.manager.add_client(name, weight_kg, height_cm, age, sex)
             self.list.addItem(name)
-            self.name_input.clear()
+            self.clear_inputs()
+            self.manager.save()
+        else:
+            QMessageBox.warning(self, "Duplicate Name", "A client with that name already exists.")
+
+    def edit_client(self):
+        current_item = self.list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "Select Client", "Please select a client to edit.")
+            return
+
+        name = current_item.text()
+        client = next((c for c in self.manager.clients if c.name == name), None)
+        if not client:
+            return
+
+        dlg = EditClientDialog(client, self)
+        if dlg.exec():
+            self.manager.save()
+            QMessageBox.information(self, "Client Edited", f"{client.name} has been updated.")
+
+    def remove_client(self):
+        current_item = self.list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "Select Client", "Please select a client to remove.")
+            return
+        name = current_item.text()
+        client = next((c for c in self.manager.clients if c.name == name), None)
+        if client:
+            self.manager.clients.remove(client)
+            self.manager.save()
+            self.list.takeItem(self.list.row(current_item))
+            self.clear_inputs()
+            path = program_path(name)
+            if os.path.exists(path):
+                os.remove(path)
+
+    def clear_inputs(self):
+        self.name_input.clear()
+        self.weight.clear()
+        self.client_height.clear()
+        self.age.clear()
+        self.sex.setCurrentIndex(0)
 
 class ExerciseManager(QDialog):
     def __init__(self, parent=None):
