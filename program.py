@@ -14,7 +14,53 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+from openpyxl.utils import get_column_letter
+
 import json
+import os
+
+CLIENTS_FILE = "clients.json"
+PROGRAMS_DIR = "programs"
+
+class Client:
+    def __init__(self, name, weight, height, age, sex):
+        self.name = name
+        self.weight = weight
+        self.height = height
+        self.age = age
+        self.sex = sex
+
+    def to_dict(self):
+        return {"name": self.name, "weight": self.weight, "height": self.height, "age": self.age, "sex": self.sex}
+
+    @staticmethod
+    def from_dict(d):
+        return Client(d["name"], d["weight"], d["height"], d["age"], d["sex"])
+
+class ClientManager:
+    def __init__(self, filename=CLIENTS_FILE):
+        self.filename = filename
+        self.clients = []
+        self.load()
+
+    def load(self):
+        try:
+            with open(self.filename, "r") as f:
+                data = json.load(f)
+            self.clients = [Client.from_dict(c) for c in data]
+        except FileNotFoundError:
+            self.clients = []
+
+    def save(self):
+        with open(self.filename, "w") as f:
+            json.dump([c.to_dict() for c in self.clients], f, indent=2)
+
+    def add_client(self, name, weight, height, age, sex):
+        if name and name not in [c.name for c in self.clients]:
+            self.clients.append(Client(name, weight, height, age, sex))
+            self.save()
 
 class Exercise:
     def __init__(self, name, type, link=""):
@@ -37,7 +83,7 @@ class Exercise:
             self.sets = min(self.base_sets + 1, 4)
             low, high = map(int, self.base_reps.split("-"))
             self.reps = f"{low+1}-{high+1}"
-        elif adjusted_week > 3 and adjusted_week <= 4:
+        elif adjusted_week == 4:
             self.sets = min(self.base_sets + 1, 4)
             low, high = map(int, self.base_reps.split("-"))
             self.reps = f"{low+2}-{high+2}"
@@ -304,6 +350,69 @@ class TrainingBlock:
 
             self.weeks.append(week)
 
+    def to_dict(self):
+        return {
+            "program_type": self.program.program_type,
+            "num_weeks": self.num_weeks,
+            "weeks": [
+                {
+                    "schedule": {
+                        day: [
+                            {
+                                "name": ex.name,
+                                "type": ex.type,
+                                "sets": ex.sets,
+                                "reps": ex.reps,
+                                "link": ex.link
+                            } for ex in exercises
+                        ]
+                        for day, exercises in week.schedule.items()
+                    }
+                }
+                for week in self.weeks
+            ]
+        }
+
+    @staticmethod
+    def from_dict(data):
+        program_type = data.get("program_type", 0)
+        dummy_program = WorkoutProgram(program_type=program_type)
+        block = TrainingBlock(dummy_program, weeks=data["num_weeks"])
+        block.weeks = []
+
+        for week_data in data["weeks"]:
+            week = Week(dummy_program)
+            week.schedule = {}
+
+            for day, exercises in week_data["schedule"].items():
+                week.schedule[day] = []
+                for e in exercises:
+                    ex = Exercise(e["name"], e["type"], e.get("link", ""))
+                    ex.sets = e["sets"]
+                    ex.reps = e["reps"]
+                    week.schedule[day].append(ex)
+
+            block.weeks.append(week)
+
+        return block
+
+os.makedirs(PROGRAMS_DIR, exist_ok=True)
+
+def program_path(client_name):
+    return os.path.join(PROGRAMS_DIR, f"{client_name}.json")
+
+def save_client_program(client_name, block):
+    with open(program_path(client_name), "w") as f:
+        json.dump(block.to_dict(), f, indent=2)
+
+def load_client_program(client_name):
+    path = program_path(client_name)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        return TrainingBlock.from_dict(json.load(f))
+
+
 def export_block_to_light_pdf(block, filename="Training_Block.pdf"):
     c = canvas.Canvas(filename, pagesize=letter)
     width, height = letter
@@ -446,6 +555,47 @@ def export_nutrition_to_light_pdf(
 
     c.save()
 
+def autosize_worksheet_columns(ws, min_width=10, max_width=50):
+    for col_cells in ws.columns:
+        max_length = 0
+        col_letter = get_column_letter(col_cells[0].column)
+
+        for cell in col_cells:
+            if cell.value:
+                cell_length = len(str(cell.value))
+                max_length = max(max_length, cell_length)
+
+        adjusted_width = max(min_width, min(max_length + 2, max_width))
+        ws.column_dimensions[col_letter].width = adjusted_width
+
+def export_training_block_to_excel(block, filename="Training_Block.xlsx"):
+    wb = Workbook()
+    wb.remove(wb.active)  # remove default sheet
+
+    header_font = Font(bold=True)
+    center_align = Alignment(vertical="center")
+
+    for week_index, week in enumerate(block.weeks, start=1):
+        ws = wb.create_sheet(title=f"Week {week_index}")
+
+        ws.append(["Day", "Exercise", "Sets", "Reps", "Weight"])
+        for col in range(1, 5):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.alignment = center_align
+            ws.column_dimensions[chr(64 + col)].width = 22
+
+        row = 2
+        for day, exercises in week.schedule.items():
+            for ex in exercises:
+                ws.cell(row=row, column=1, value=day)
+                ws.cell(row=row, column=2, value=ex.name)
+                ws.cell(row=row, column=3, value=ex.sets)
+                ws.cell(row=row, column=4, value=ex.reps)
+                row += 1
+        autosize_worksheet_columns(ws)
+
+    wb.save(filename)
 
 class ProgramGUI(QWidget):
     def __init__(self):
@@ -458,6 +608,26 @@ class ProgramGUI(QWidget):
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
+
+        self.client_manager = ClientManager()
+        self.current_client = None
+
+        client_layout = QHBoxLayout()
+        self.layout.addLayout(client_layout)
+
+        client_layout.addWidget(QLabel("Client:"))
+
+        self.client_selector = QComboBox()
+        self.client_selector.addItem("— No Client —")
+        for c in self.client_manager.clients:
+            self.client_selector.addItem(c.name)
+
+        self.client_selector.currentTextChanged.connect(self.on_client_selected)
+        client_layout.addWidget(self.client_selector)
+
+        self.manage_clients_btn = QPushButton("Manage Clients")
+        self.manage_clients_btn.clicked.connect(self.open_client_manager)
+        client_layout.addWidget(self.manage_clients_btn)
 
         top_layout = QHBoxLayout()
         self.layout.addLayout(top_layout)
@@ -500,6 +670,7 @@ class ProgramGUI(QWidget):
         self.save_btn.clicked.connect(self.save_week)
         nav_layout.addWidget(self.save_btn)
 
+        self.nutrition_dialog = NutritionDialog(self)
         self.nutrition_btn = QPushButton("Nutrition Calculator")
         self.nutrition_btn.clicked.connect(self.open_nutrition)
         nav_layout.addWidget(self.nutrition_btn)
@@ -521,6 +692,46 @@ class ProgramGUI(QWidget):
         self.save_pdf_btn.clicked.connect(self.export_current_block_to_pdf)
         nav_layout.addWidget(self.save_pdf_btn)
 
+        self.export_excel_btn = QPushButton("Export Training Block to Excel")
+        self.export_excel_btn.clicked.connect(self.save_week)
+        self.export_excel_btn.clicked.connect(self.export_current_block_to_excel)
+        nav_layout.addWidget(self.export_excel_btn)
+
+    def on_client_selected(self, name):
+        if name == "— No Client —":
+            self.current_client = None
+            self.training_block = None
+            self.table.setRowCount(0)
+            self.week_label.setText("")
+            self.nutrition_dialog.reset_data()
+            return
+
+        client_obj = next((c for c in self.client_manager.clients if c.name == name), None)
+        if client_obj:
+            self.current_client = name
+
+            self.nutrition_dialog.set_client_data(
+                client_obj.weight,
+                client_obj.height,
+                client_obj.age,
+                client_obj.sex
+            )
+
+            block = load_client_program(name)
+            if block:
+                self.training_block = block
+                self.week_number = 0
+                self.show_week()
+            else:
+                self.training_block = None
+                self.table.setRowCount(0)
+                self.week_label.setText("")
+                QMessageBox.information(
+                    self,
+                    "No Program Found",
+                    f"{name} has no saved program.\nGenerate one and it will be saved automatically."
+                )
+
     def export_current_block_to_pdf(self):
         if self.training_block:
             filename, ok = QInputDialog.getText(None, "Input Dialog", "Enter document name:", QLineEdit.Normal, "")
@@ -533,6 +744,27 @@ class ProgramGUI(QWidget):
                 export_block_to_light_pdf(self.training_block, filename=filename)
                 print(f"Exported current training block to {filename}")
 
+    def export_current_block_to_excel(self):
+        if self.training_block:
+            filename, ok = QInputDialog.getText(None, "Input Dialog", "Enter document name:", QLineEdit.Normal, "")
+            if ok and filename != "": 
+                filename += ".xlsx"
+                export_training_block_to_excel(self.training_block, filename=filename)
+                print(f"Exported current training block to {filename}")
+            elif ok and not filename:
+                filename = f"Training_Block_Week_{len(self.training_block.weeks)}.xlsx"
+                export_training_block_to_excel(self.training_block, filename=filename)
+                print(f"Exported current training block to {filename}")
+
+    def open_client_manager(self):
+        dlg = ClientManagerDialog(self, self.client_manager)
+        dlg.exec()
+
+        self.client_selector.clear()
+        self.client_selector.addItem("— No Client —")
+        for c in self.client_manager.clients:
+            self.client_selector.addItem(c.name)
+
     def open_exercise_manager(self):
         dlg = ExerciseManager(self)
         dlg.exec()
@@ -542,8 +774,8 @@ class ProgramGUI(QWidget):
         print("Exercise config imported.")
 
     def open_nutrition(self):
-        dlg = NutritionDialog(self)
-        dlg.exec()
+        #dlg = NutritionDialog(self)
+        self.nutrition_dialog.exec()
 
     def generate_program(self):
         program_type = self.program_selector.currentText()
@@ -559,6 +791,9 @@ class ProgramGUI(QWidget):
         self.training_block.generate()
         self.week_number = 0
         self.show_week()
+
+        if self.current_client and load_client_program(self.current_client) is None:
+            save_client_program(self.current_client, self.training_block)
 
     def show_week(self):
         week = self.training_block.weeks[self.week_number]
@@ -591,6 +826,8 @@ class ProgramGUI(QWidget):
                 ex.sets = int(sets)
                 ex.reps = reps
                 row_index += 1
+        if self.current_client:
+            save_client_program(self.current_client, self.training_block)
         print(f"Week {self.week_number + 1} edits saved.")
 
     def next_week(self):
@@ -604,6 +841,57 @@ class ProgramGUI(QWidget):
             self.save_week()
             self.week_number -= 1
             self.show_week()
+
+class ClientManagerDialog(QDialog):
+    def __init__(self, parent, manager):
+        super().__init__(parent)
+        self.manager = manager
+        self.setWindowTitle("Client Manager")
+        self.setMinimumWidth(300)
+
+        layout = QVBoxLayout(self)
+
+        self.list = QListWidget()
+        for c in manager.clients:
+            self.list.addItem(c.name)
+        layout.addWidget(self.list)
+
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Client Name")
+
+        self.weight = QLineEdit()
+        self.weight.setPlaceholderText("Weight (kg)")
+
+        self.client_height = QLineEdit()
+        self.client_height.setPlaceholderText("Height (cm)")
+
+        self.age = QLineEdit()
+        self.age.setPlaceholderText("Age")
+
+        self.sex = QComboBox()
+        self.sex.addItems(["Male", "Female"])
+
+        for w in [self.name_input, self.weight, self.client_height, self.age, self.sex]:
+            layout.addWidget(w)
+
+        add_btn = QPushButton("Add Client")
+        add_btn.clicked.connect(self.add_client)
+        layout.addWidget(add_btn)
+
+    def add_client(self):
+        name = self.name_input.text().strip()
+        try:
+            weight_kg = float(self.weight.text())
+            height_cm = float(self.client_height.text())
+            age = int(self.age.text())
+        except ValueError:
+            QMessageBox.warning(self, "Input Error", "Please enter valid numbers.")
+            return
+        sex=self.sex.currentText()
+        if name:
+            self.manager.add_client(name, weight_kg, height_cm, age, sex)
+            self.list.addItem(name)
+            self.name_input.clear()
 
 class ExerciseManager(QDialog):
     def __init__(self, parent=None):
@@ -757,6 +1045,18 @@ class NutritionDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Input Error", "Please calculate first.")
 
+    def set_client_data(self, weight, height, age, sex):
+        self.weight.setText(str(weight))
+        self.height.setText(str(height))
+        self.age.setText(str(age))
+        self.sex.setCurrentText(str(sex))
+
+    def reset_data(self):
+        self.weight.clear()
+        self.height.clear()
+        self.age.clear()
+        self.sex.setCurrentIndex(0)
+
     def calculate(self):
         try:
             maintenance = NutritionCalculator.maintenance_calories(
@@ -795,21 +1095,23 @@ class NutritionCalculator:
     def cut_calories(maintenance, deficit_pct=0.20):
         return int(maintenance * (1 - deficit_pct))
 
-#Test Cases
-full_body_program = WorkoutProgram(program_type=2)
-workout_program = WorkoutProgram(program_type=1)
-workout_program_arnold = WorkoutProgram(program_type=0)
-block = TrainingBlock(workout_program, weeks=5)
-block_arnold = TrainingBlock(workout_program_arnold, weeks=5)
-block_full_body = TrainingBlock(full_body_program, weeks=10)
-block.generate()
-block_arnold.generate()
-block_full_body.generate()
-export_block_to_light_pdf(block, filename="4_Week_PPL_Light.pdf")
-export_block_to_light_pdf(block_arnold, filename="4_Week_ARNOLD_Light.pdf")
-export_block_to_light_pdf(block_full_body, filename="4_Week_Full_Body_Light.pdf")
-
 if __name__ == "__main__":
+    """
+    #Test Cases
+    full_body_program = WorkoutProgram(program_type=2)
+    workout_program = WorkoutProgram(program_type=1)
+    workout_program_arnold = WorkoutProgram(program_type=0)
+    block = TrainingBlock(workout_program, weeks=5)
+    block_arnold = TrainingBlock(workout_program_arnold, weeks=5)
+    block_full_body = TrainingBlock(full_body_program, weeks=10)
+    block.generate()
+    block_arnold.generate()
+    block_full_body.generate()
+    export_block_to_light_pdf(block, filename="PPL.pdf")
+    export_block_to_light_pdf(block_arnold, filename="ARNOLD.pdf")
+    export_block_to_light_pdf(block_full_body, filename="Full_Body.pdf")
+    """
+
     app = QApplication(sys.argv)
     gui = ProgramGUI()
     gui.show()
