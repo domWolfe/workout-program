@@ -10,7 +10,7 @@ import sys
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QTableWidget, 
     QTableWidgetItem, QPushButton, QLabel, QHeaderView, QComboBox, QHBoxLayout,
-    QDialog, QListWidget, QLineEdit, QMessageBox, QInputDialog
+    QDialog, QListWidget, QLineEdit, QMessageBox, QInputDialog, QListWidgetItem
 )
 from PySide6.QtCore import Qt
 
@@ -24,20 +24,35 @@ import os
 CLIENTS_FILE = "clients.json"
 PROGRAMS_DIR = "programs"
 
+UID = 0
+class UidManager:
+    @staticmethod
+    def set_start(value):
+        global UID
+        UID = value
+
+    @staticmethod
+    def get_uid():
+        global UID
+        UID += 1
+        return UID
+
+
 class Client:
-    def __init__(self, name, weight, height, age, sex):
+    def __init__(self, name, weight, height, age, sex, uid=None):
         self.name = name
         self.weight = weight
         self.height = height
         self.age = age
         self.sex = sex
+        self.uid = uid if uid is not None else UidManager.get_uid()
 
     def to_dict(self):
-        return {"name": self.name, "weight": self.weight, "height": self.height, "age": self.age, "sex": self.sex}
+        return {"name": self.name, "weight": self.weight, "height": self.height, "age": self.age, "sex": self.sex, "uid": self.uid}
 
     @staticmethod
     def from_dict(d):
-        return Client(d["name"], d["weight"], d["height"], d["age"], d["sex"])
+        return Client(d["name"], d["weight"], d["height"], d["age"], d["sex"], uid=d["uid"])
 
 class ClientManager:
     def __init__(self, filename=CLIENTS_FILE):
@@ -50,17 +65,24 @@ class ClientManager:
             with open(self.filename, "r") as f:
                 data = json.load(f)
             self.clients = [Client.from_dict(c) for c in data]
+            if self.clients:
+                max_uid = max(c.uid for c in self.clients)
+                UidManager.set_start(max_uid)
         except FileNotFoundError:
             self.clients = []
+            UidManager.set_start(0)
 
     def save(self):
         with open(self.filename, "w") as f:
             json.dump([c.to_dict() for c in self.clients], f, indent=2)
 
     def add_client(self, name, weight, height, age, sex):
-        if name and name not in [c.name for c in self.clients]:
+        if name:
             self.clients.append(Client(name, weight, height, age, sex))
             self.save()
+    
+    def get_by_uid(self, uid):
+        return next((c for c in self.clients if c.uid == uid), None)
 
 class Exercise:
     def __init__(self, name, type, link=""):
@@ -234,6 +256,7 @@ class WorkoutProgram:
         self.workouts = {}
     
     def generate_program(self):
+        self.workouts = {}
         if self.program_type == 0:
             self.generate_arnold_split()
         elif self.program_type == 1:
@@ -398,15 +421,15 @@ class TrainingBlock:
 
 os.makedirs(PROGRAMS_DIR, exist_ok=True)
 
-def program_path(client_name):
-    return os.path.join(PROGRAMS_DIR, f"{client_name}.json")
+def program_path(client_uid):
+    return os.path.join(PROGRAMS_DIR, f"{client_uid}.json")
 
-def save_client_program(client_name, block):
-    with open(program_path(client_name), "w") as f:
+def save_client_program(client_uid, block):
+    with open(program_path(client_uid), "w") as f:
         json.dump(block.to_dict(), f, indent=2)
 
-def load_client_program(client_name):
-    path = program_path(client_name)
+def load_client_program(client_uid):
+    path = program_path(client_uid)
     if not os.path.exists(path):
         return None
     with open(path, "r") as f:
@@ -620,9 +643,9 @@ class ProgramGUI(QWidget):
         self.client_selector = QComboBox()
         self.client_selector.addItem("— No Client —")
         for c in self.client_manager.clients:
-            self.client_selector.addItem(c.name)
+            self.client_selector.addItem(c.name, c.uid)
 
-        self.client_selector.currentTextChanged.connect(self.on_client_selected)
+        self.client_selector.currentIndexChanged.connect(self.on_client_selected)
         client_layout.addWidget(self.client_selector)
 
         self.manage_clients_btn = QPushButton("Manage Clients")
@@ -697,8 +720,9 @@ class ProgramGUI(QWidget):
         self.export_excel_btn.clicked.connect(self.export_current_block_to_excel)
         nav_layout.addWidget(self.export_excel_btn)
 
-    def on_client_selected(self, name):
-        if name == "— No Client —":
+    def on_client_selected(self, index):
+        uid = self.client_selector.itemData(index)
+        if uid is None:
             self.current_client = None
             self.training_block = None
             self.table.setRowCount(0)
@@ -706,9 +730,9 @@ class ProgramGUI(QWidget):
             self.nutrition_dialog.reset_data()
             return
 
-        client_obj = next((c for c in self.client_manager.clients if c.name == name), None)
+        client_obj = self.client_manager.get_by_uid(uid)
         if client_obj:
-            self.current_client = name
+            self.current_client = client_obj
 
             self.nutrition_dialog.set_client_data(
                 client_obj.weight,
@@ -717,7 +741,7 @@ class ProgramGUI(QWidget):
                 client_obj.sex
             )
 
-            block = load_client_program(name)
+            block = load_client_program(client_obj.uid)
             if block:
                 self.training_block = block
                 self.week_number = 0
@@ -729,7 +753,7 @@ class ProgramGUI(QWidget):
                 QMessageBox.information(
                     self,
                     "No Program Found",
-                    f"{name} has no saved program.\nGenerate one and it will be saved automatically."
+                    f"{client_obj.name} has no saved program.\nGenerate one and it will be saved automatically."
                 )
 
     def export_current_block_to_pdf(self):
@@ -763,7 +787,7 @@ class ProgramGUI(QWidget):
         self.client_selector.clear()
         self.client_selector.addItem("— No Client —")
         for c in self.client_manager.clients:
-            self.client_selector.addItem(c.name)
+            self.client_selector.addItem(c.name, c.uid)
 
     def open_exercise_manager(self):
         dlg = ExerciseManager(self)
@@ -792,8 +816,8 @@ class ProgramGUI(QWidget):
         self.week_number = 0
         self.show_week()
 
-        if self.current_client and load_client_program(self.current_client) is None:
-            save_client_program(self.current_client, self.training_block)
+        if self.current_client and load_client_program(self.current_client.uid) is None:
+            save_client_program(self.current_client.uid, self.training_block)
 
     def show_week(self):
         week = self.training_block.weeks[self.week_number]
@@ -817,6 +841,8 @@ class ProgramGUI(QWidget):
                 row_index += 1
 
     def save_week(self):
+        if not self.training_block:
+            return
         week = self.training_block.weeks[self.week_number]
         row_index = 0
         for day, exercises in week.schedule.items():
@@ -827,7 +853,7 @@ class ProgramGUI(QWidget):
                 ex.reps = reps
                 row_index += 1
         if self.current_client:
-            save_client_program(self.current_client, self.training_block)
+            save_client_program(self.current_client.uid, self.training_block)
         print(f"Week {self.week_number + 1} edits saved.")
 
     def next_week(self):
@@ -902,9 +928,9 @@ class ClientManagerDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.list = QListWidget()
-        for c in manager.clients:
-            self.list.addItem(c.name)
+        self.refresh_list()
         layout.addWidget(self.list)
+
 
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Client Name")
@@ -940,6 +966,20 @@ class ClientManagerDialog(QDialog):
         btn_layout.addWidget(clear_btn)
         layout.addLayout(btn_layout)
 
+    def refresh_list(self):
+        self.list.clear()
+        for c in self.manager.clients:
+            item = QListWidgetItem(c.name)
+            item.setData(Qt.UserRole, c.uid)
+            self.list.addItem(item)
+
+    def selected_client(self):
+        item = self.list.currentItem()
+        if not item:
+            return None
+        uid = item.data(Qt.UserRole)
+        return self.manager.get_by_uid(uid)
+
     def add_client(self):
         name = self.name_input.text().strip()
         try:
@@ -949,46 +989,55 @@ class ClientManagerDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Input Error", "Please enter valid numbers.")
             return
-        sex = self.sex.currentText()
-        if name and name not in [c.name for c in self.manager.clients]:
-            self.manager.add_client(name, weight_kg, height_cm, age, sex)
-            self.list.addItem(name)
-            self.clear_inputs()
-            self.manager.save()
-        else:
-            QMessageBox.warning(self, "Duplicate Name", "A client with that name already exists.")
 
-    def edit_client(self):
-        current_item = self.list.currentItem()
-        if not current_item:
-            QMessageBox.warning(self, "Select Client", "Please select a client to edit.")
+        sex = self.sex.currentText()
+        if not name:
+            QMessageBox.warning(self, "Input Error", "Client name required.")
             return
 
-        name = current_item.text()
-        client = next((c for c in self.manager.clients if c.name == name), None)
+        self.manager.add_client(name, weight_kg, height_cm, age, sex)
+        self.manager.save()
+        self.refresh_list()
+        self.clear_inputs()
+
+    def edit_client(self):
+        client = self.selected_client()
         if not client:
+            QMessageBox.warning(self, "Select Client", "Please select a client to edit.")
             return
 
         dlg = EditClientDialog(client, self)
         if dlg.exec():
             self.manager.save()
-            QMessageBox.information(self, "Client Edited", f"{client.name} has been updated.")
+            self.refresh_list()
+            QMessageBox.information(
+                self, "Client Updated", f"{client.name} has been updated."
+            )
 
     def remove_client(self):
-        current_item = self.list.currentItem()
-        if not current_item:
+        client = self.selected_client()
+        if not client:
             QMessageBox.warning(self, "Select Client", "Please select a client to remove.")
             return
-        name = current_item.text()
-        client = next((c for c in self.manager.clients if c.name == name), None)
-        if client:
-            self.manager.clients.remove(client)
-            self.manager.save()
-            self.list.takeItem(self.list.row(current_item))
-            self.clear_inputs()
-            path = program_path(name)
-            if os.path.exists(path):
-                os.remove(path)
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Delete client '{client.name}' and their program?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if confirm != QMessageBox.Yes:
+            return
+
+        self.manager.clients.remove(client)
+        self.manager.save()
+        self.refresh_list()
+        self.clear_inputs()
+
+        path = program_path(client.uid)
+        if os.path.exists(path):
+            os.remove(path)
 
     def clear_inputs(self):
         self.name_input.clear()
